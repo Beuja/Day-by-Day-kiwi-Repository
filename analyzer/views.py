@@ -1,5 +1,6 @@
-import re
+import json
 import logging
+from pathlib import Path
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -9,47 +10,40 @@ from kiwipiepy import Kiwi
 
 logger = logging.getLogger(__name__)
 
-# ==========================================
-# 1. 감정 분석 사전 데이터 (내장형으로 경로 차단)
-# ==========================================
+# 데이터 폴더 절대 경로 설정 (views.py 파일 기준 하위의 'data' 폴더)
+DATA_DIR = Path(__file__).resolve().parent / 'data'
+NRC_LEXICON_PATH = DATA_DIR / 'nrc_lexicon_ko.json'
+KNU_LEXICON_PATH = DATA_DIR / 'knu_lexicon_ko.json'
+
 EMOTION_KEYS = ("joy", "sadness", "anger", "fear", "trust", "surprise")
 
-DEFAULT_NRC_LEXICON = {
-    "행복": {"joy": 1.0, "trust": 0.6},
-    "기쁨": {"joy": 1.0, "surprise": 0.3},
-    "즐겁": {"joy": 0.9},
-    "신남": {"joy": 0.7, "surprise": 0.5},
-    "슬픔": {"sadness": 1.0},
-    "우울": {"sadness": 0.9, "fear": 0.2},
-    "불안": {"fear": 0.8, "sadness": 0.2},
-    "무섭": {"fear": 1.0},
-    "화나": {"anger": 1.0},
-    "분노": {"anger": 1.0},
-    "짜증": {"anger": 0.8, "sadness": 0.2},
-    "믿음": {"trust": 1.0},
-    "신뢰": {"trust": 1.0},
-    "놀람": {"surprise": 1.0},
-    "당황": {"surprise": 0.7, "fear": 0.3},
-}
-
-DEFAULT_KNU_LEXICON = {
-    "편안": {"trust": 0.5, "joy": 0.3},
-    "안정": {"trust": 0.7},
-    "만족": {"joy": 0.7, "trust": 0.3},
-    "외롭": {"sadness": 0.8},
-    "불쾌": {"anger": 0.4, "sadness": 0.6},
-    "긴장": {"fear": 0.6, "surprise": 0.2},
-}
-
 # ==========================================
-# 2. Kiwi 형태소 기반 감정 분석 엔진
+# Kiwi 형태소 기반 감정 분석 엔진 (JSON 사전 로더 내장형)
 # ==========================================
 class EmotionAnalyzer:
     def __init__(self):
         # C++ Kiwi 형태소 기동 (전용 서버이므로 에러 시 크래시 처리)
         self.kiwi = Kiwi()
-        self.nrc_lexicon = DEFAULT_NRC_LEXICON
-        self.knu_lexicon = DEFAULT_KNU_LEXICON
+        
+        # 실제 감정 사전 JSON 파일 절대 경로로 안전하게 로드
+        self.nrc_lexicon = self._load_lexicon(NRC_LEXICON_PATH)
+        self.knu_lexicon = self._load_lexicon(KNU_LEXICON_PATH)
+        
+        logger.info(f"EmotionAnalyzer initialized. Loaded NRC Lexicon ({len(self.nrc_lexicon)} keys), KNU Lexicon ({len(self.knu_lexicon)} keys).")
+
+    def _load_lexicon(self, path: Path) -> dict:
+        """
+        사전 JSON 파일을 안전하게 로드하여 파이썬 딕셔너리로 반환합니다.
+        """
+        if not path.exists():
+            logger.error(f"Lexicon file NOT found: {path}")
+            return {}
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading lexicon file at {path}: {e}")
+            return {}
 
     def analyze(self, text: str) -> dict:
         tokens = self.tokenize_and_filter(text)
@@ -185,7 +179,7 @@ class EmotionAnalyzer:
 analyzer = EmotionAnalyzer()
 
 # ==========================================
-# 3. 외부 API 호출을 받는 DRF 뷰
+# 외부 API 호출을 받는 DRF 뷰
 # ==========================================
 @api_view(['POST'])
 @parser_classes([JSONParser, MultiPartParser, FormParser])
