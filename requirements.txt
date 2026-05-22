@@ -3,3 +3,4 @@ djangorestframework>=3.12.0
 kiwipiepy>=0.17.0
 kiwipiepy-model>=0.17.0
 requests>=2.25.0
+gunicorn
