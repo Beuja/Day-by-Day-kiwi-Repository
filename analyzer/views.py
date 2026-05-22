@@ -114,13 +114,38 @@ class EmotionAnalyzer:
 
     def _lookup_token_scores(self, token: str) -> dict:
         scores = self._zero_scores()
-        nrc = self.nrc_lexicon.get(token)
-        knu = self.knu_lexicon.get(token)
+        
+        # 1. 다양한 한국어 어근/어간 변화에 대처하기 위한 후보 매칭 리스트 생성
+        candidates = [token]
+        
+        # 용언(형용사/동사) 어간 처리 (예: "슬프" -> "슬프다")
+        candidates.append(token + "다")
+        
+        # "하"로 끝나는 동사/형용사 접미사 처리 (예: "행복하" -> "행복", "행복하다")
+        if token.endswith("하"):
+            candidates.append(token[:-1])
+            candidates.append(token[:-1] + "하다")
+            
+        # "스럽"으로 끝나는 형용사 접미사 처리 (예: "사랑스럽" -> "사랑스럽다", "사랑")
+        if token.endswith("스럽"):
+            candidates.append(token + "다")
+            candidates.append(token[:-2])
+            candidates.append(token[:-2] + "스럽다")
 
-        if nrc:
-            self._accumulate(scores, nrc)
-        if knu:
-            self._accumulate(scores, knu)
+        # 2. 후보군 단어로 사전 검색 및 매칭 수행
+        for cand in candidates:
+            nrc = self.nrc_lexicon.get(cand)
+            knu = self.knu_lexicon.get(cand)
+            
+            if nrc:
+                self._accumulate(scores, nrc)
+            if knu:
+                self._accumulate(scores, knu)
+                
+            # 가장 확실한 형태소/사전 매칭이 성공했다면 즉시 연산 누적을 멈추고 정확한 수치 확정
+            if self._has_signal(scores):
+                break
+                
         return scores
 
     def _compute_valence(self, emotions: dict) -> float:
